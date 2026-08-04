@@ -15,9 +15,11 @@ export default function ProjectBars({ entries, accent = false }) {
           </div>
           <div className="v">{issues.length}</div>
           <div className="issues">
-            {issues.filter(Boolean).map((id) => (
-              <a key={id} href={`https://www.drupal.org/i/${id}`} target="_blank" rel="noopener">
-                #{id}
+            {issues.map(({ issue, url }) => (
+              // Each chip links to its own source: the number is a per-project work item id,
+              // so a constructed drupal.org/i/<number> link can land on an unrelated node.
+              <a key={issue} href={url} target="_blank" rel="noopener">
+                #{issue}
               </a>
             ))}
           </div>

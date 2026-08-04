@@ -62,6 +62,11 @@ and provides the CDN cache below.
 - **Comment history has no date filter.** `api-d7/comment.json` sorts by `created` but cannot be
   bounded server-side, so a `months` window is walked page by page and stopped at the cutoff;
   all-time fans the pages out in parallel instead.
+- **A work item number is not a node id.** `git.drupalcode.org/project/ai_initiative/-/work_items/3586550`
+  is not drupal.org node 3586550 — that node is an unrelated *monitoring* issue, and 3586495 is a
+  release node. Constructing `drupal.org/i/<number>` links from record source links or GitLab
+  events therefore points at the wrong thing. Every entry carries the URL of the source it came
+  from, and issues are keyed by project *and* number.
 - **The GitLab account is only discoverable from the profile page.** A drupal.org username is not
   a GitLab username — "gábor hojtsy" is `goba` there — and `/api/v4/users?search=` answers 403
   anonymously, so the link on the drupal.org profile is the bridge. Exact `?username=` lookups and

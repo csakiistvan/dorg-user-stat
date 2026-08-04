@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { bestMonth, formatMonth, recordsByMonth, recordsByProject } from './aggregate.js';
+import { bestMonth, formatMonth, groupByProject, issueKey, recordsByMonth } from './aggregate.js';
 import MonthlyBars from './components/MonthlyBars.jsx';
 import ProjectBars from './components/ProjectBars.jsx';
 
@@ -103,7 +103,7 @@ export default function App() {
       months,
       stats: [
         { label: 'records', value: data.records.length },
-        { label: 'projects credited', value: recordsByProject(data.records).length },
+        { label: 'projects credited', value: new Set(data.records.map((r) => r.project)).size },
         // Redundant when the range already is the current year.
         ...(range === 'year'
           ? []
@@ -126,8 +126,8 @@ export default function App() {
    */
   const uncredited = useMemo(() => {
     if (!data || !activity?.issues) return null;
-    const credited = new Set(data.records.map((record) => record.issue));
-    const issues = activity.issues.filter((issue) => !credited.has(issue.issue));
+    const credited = new Set(data.records.map(issueKey));
+    const issues = activity.issues.filter((issue) => !credited.has(issueKey(issue)));
     const months = {};
     for (const issue of issues) {
       const key = issue.at.slice(0, 7);
@@ -142,14 +142,7 @@ export default function App() {
     const scope = month
       ? uncredited.issues.filter((issue) => issue.at.startsWith(month))
       : uncredited.issues;
-    const byProject = new Map();
-    for (const issue of scope) {
-      if (!byProject.has(issue.project)) byProject.set(issue.project, []);
-      byProject.get(issue.project).push(issue.issue);
-    }
-    return [...byProject.entries()].sort(
-      (a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]),
-    );
+    return groupByProject(scope, (issue) => issue.at);
   }, [uncredited, month]);
 
   const projects = useMemo(() => {
@@ -157,7 +150,7 @@ export default function App() {
     const scope = month
       ? data.records.filter((record) => record.credited.startsWith(month))
       : data.records;
-    return recordsByProject(scope);
+    return groupByProject(scope, (record) => record.credited);
   }, [data, month]);
 
   /** Keeps the address bar in step, so any view can be linked or reloaded. */
@@ -381,6 +374,13 @@ export default function App() {
             busy account they outnumber real comments. Each issue is dated by its newest comment,
             and any issue that already has a contribution record is removed, so what remains is
             public activity without a credit.
+          </dd>
+          <dt>Issue numbers</dt>
+          <dd>
+            The number on a chip is a work item id belonging to its project, not a global
+            drupal.org node id — the same number can name a different issue, or even a release, in
+            another project. Every chip therefore links to the source it came from, and issues are
+            matched between the two sources by project and number together.
           </dd>
         </dl>
         <p>

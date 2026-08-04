@@ -5,21 +5,19 @@ import { fetchJson, pooled, PAGE_SIZE, MAX_PAGES, MAX_CONCURRENCY } from './fetc
 
 const VIEW = 'https://new.drupal.org/jsonapi/views/contribution_records/by_user';
 
-/** Reads the issue id off a record's source link (…/-/work_items/3574246). */
-function issueId(uri) {
-  const match = /(\d+)\s*$/.exec(uri || '');
-  return match ? match[1] : null;
-}
-
 function normalize(node) {
   const a = node.attributes;
+  const url = a.field_source_link?.uri ?? null;
   return {
     nid: a.drupal_internal__nid,
     title: a.title,
     project: a.field_project_name,
     // The credit date — when the issue reached its final status, not when the record was created.
     credited: (a.field_last_status_change || a.changed).slice(0, 10),
-    issue: issueId(a.field_source_link?.uri),
+    // The trailing number is a per-project work item id, NOT a drupal.org node id, so the
+    // link has to be the source link itself: /i/<number> lands on an unrelated node.
+    issue: /(\d+)\s*$/.exec(url || '')?.[1] ?? null,
+    url,
   };
 }
 

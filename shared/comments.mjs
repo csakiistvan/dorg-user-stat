@@ -16,6 +16,8 @@ function normalize(comment) {
     project: match[1],
     issue: comment.node?.id ?? match[2],
     at: new Date(Number(comment.created) * 1000).toISOString().slice(0, 10),
+    // Drop the #comment- fragment: the issue page is what the chip should open.
+    url: `https://www.drupal.org/project/${match[1]}/issues/${match[2]}`,
   };
 }
 

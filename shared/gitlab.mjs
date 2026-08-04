@@ -135,10 +135,18 @@ export async function fetchGitlabCommentedIssues(uid, { from, knownProjects = ne
   );
 
   const named = entries
-    .map(({ projectId, ...entry }) => ({
-      ...entry,
-      project: entry.project ?? projectNames.get(projectId),
-    }))
+    .map(({ projectId, ...entry }) => {
+      const project = entry.project ?? projectNames.get(projectId);
+      return {
+        ...entry,
+        project,
+        // Work item ids are per project, so only this URL identifies the issue. Building a
+        // drupal.org/i/<id> link from the number would point at an unrelated node.
+        url: project
+          ? `https://git.drupalcode.org/project/${project}/-/work_items/${entry.issue}`
+          : null,
+      };
+    })
     .filter((entry) => entry.project);
   return {
     username,

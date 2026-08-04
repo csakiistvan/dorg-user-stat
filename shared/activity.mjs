@@ -8,19 +8,25 @@
 import { cutoffFor, fetchD7CommentedIssues } from './comments.mjs';
 import { fetchGitlabCommentedIssues } from './gitlab.mjs';
 
-/** Merges by issue id, keeping the newest comment date and the summed comment count. */
+/**
+ * Merges by project and issue number, keeping the newest comment date and the summed count.
+ * The number alone is not unique: a GitLab work item id belongs to its project, so the same
+ * number can name a different issue — or a release node — elsewhere.
+ */
 function merge(...sets) {
   const issues = new Map();
   for (const list of sets) {
     for (const entry of list) {
-      const existing = issues.get(entry.issue);
+      const key = `${entry.project}#${entry.issue}`;
+      const existing = issues.get(key);
       if (!existing) {
-        issues.set(entry.issue, { ...entry });
+        issues.set(key, { ...entry });
         continue;
       }
       existing.comments += entry.comments;
       if (entry.at > existing.at) existing.at = entry.at;
-      existing.project ||= entry.project;
+      // Prefer the drupal.org issue page over the GitLab work item when both are known.
+      if (entry.url?.includes('www.drupal.org')) existing.url = entry.url;
     }
   }
   return [...issues.values()].sort((a, b) => b.at.localeCompare(a.at));

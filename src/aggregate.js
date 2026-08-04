@@ -8,12 +8,20 @@ export function recordsByMonth(records) {
   return months;
 }
 
-/** [project machine name, issue ids] pairs — newest credit first, biggest project first. */
-export function recordsByProject(records) {
+/**
+ * Issue numbers are only unique within their project, so everything is keyed this way.
+ * A bare number can name a different issue — or a release — in another project.
+ */
+export function issueKey(entry) {
+  return `${entry.project}#${entry.issue}`;
+}
+
+/** [project machine name, issues] pairs — newest first, biggest project first. */
+export function groupByProject(entries, dateOf) {
   const projects = new Map();
-  for (const record of [...records].sort((a, b) => b.credited.localeCompare(a.credited))) {
-    if (!projects.has(record.project)) projects.set(record.project, []);
-    projects.get(record.project).push(record.issue);
+  for (const entry of [...entries].sort((a, b) => dateOf(b).localeCompare(dateOf(a)))) {
+    if (!projects.has(entry.project)) projects.set(entry.project, []);
+    projects.get(entry.project).push({ issue: entry.issue, url: entry.url });
   }
   return [...projects.entries()].sort(
     (a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]),
