@@ -350,6 +350,38 @@ section {
   color: var(--text-primary);
 }
 
+footer {
+  margin-top: 48px;
+  padding-top: 20px;
+  border-top: 1px solid var(--grid);
+  font-size: 12px;
+  color: var(--text-muted);
+  max-width: 70ch;
+}
+
+footer h2 {
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+footer dt {
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-top: 10px;
+}
+
+footer dd {
+  margin: 2px 0 0;
+}
+
+footer p {
+  margin: 14px 0 0;
+}
+
+footer a {
+  color: inherit;
+}
+
 .tip {
   position: fixed;
   pointer-events: none;

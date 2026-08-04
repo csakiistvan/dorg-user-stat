@@ -337,6 +337,41 @@ export default function App() {
           )}
         </>
       )}
+
+      <footer>
+        <h2>Where these numbers come from</h2>
+        <dl>
+          <dt>Contribution records</dt>
+          <dd>
+            The{' '}
+            <a
+              href="https://www.drupal.org/drupalorg/docs/apis/rest-and-other-apis#s-contribution-records"
+              target="_blank"
+              rel="noopener"
+            >
+              contribution records API
+            </a>{' '}
+            on <code>new.drupal.org</code>. Security advisories are excluded, and each record is
+            dated by its last status change — the moment the issue was closed, not when the work
+            happened.
+          </dd>
+          <dt>Worked on, not credited</dt>
+          <dd>
+            Issue comments from the legacy <code>api-d7/comment.json</code> endpoint, reduced to one
+            entry per issue and dated by the newest comment on it. Any issue that already has a
+            contribution record is removed, so what remains is public activity without a credit.
+          </dd>
+        </dl>
+        <p>
+          Both figures can differ from reality. A comment is the only public trace of uncredited
+          work, so anything done without posting on the issue cannot appear here. Credits are
+          awarded later and change the split retroactively, so an issue counted as uncredited today
+          may move to the credited series tomorrow. Long histories are collected only up to a limit
+          and are flagged when cut short, and the two sources come from different drupal.org API
+          generations that may disagree.
+        </p>
+        <p>This page is provided as-is, with no responsibility taken for the data it displays.</p>
+      </footer>
     </div>
   );
 }
