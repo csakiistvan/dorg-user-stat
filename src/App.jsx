@@ -54,7 +54,15 @@ export default function App() {
         if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
         return body;
       })
-      .then(setData)
+      .then((body) => {
+        setData(body);
+        // Tidy a pasted profile URL down to what it resolved to, so the address bar stays linkable.
+        if (body.user !== usernameFromPath()) {
+          const suffix = months ? `?months=${months}` : '';
+          history.replaceState(null, '', `/u/${encodeURIComponent(body.user)}${suffix}`);
+          setInput(body.user);
+        }
+      })
       .catch((cause) => {
         if (cause.name !== 'AbortError') setError(cause.message);
       })
@@ -109,11 +117,11 @@ export default function App() {
     <div className="viz-root">
       <h1>Drupal.org contribution records</h1>
       <form className="pick" onSubmit={submit}>
-        <label htmlFor="user">drupal.org username</label>
+        <label htmlFor="user">drupal.org profile</label>
         <input
           id="user"
           value={input}
-          placeholder="e.g. csakiistvan"
+          placeholder="profile URL, username or user ID"
           autoComplete="off"
           spellCheck="false"
           onChange={(event) => setInput(event.target.value)}
@@ -135,8 +143,8 @@ export default function App() {
 
       {!username && !loading && (
         <p className="cap">
-          Enter a username to pull its all-time contribution records from the drupal.org API.
-          Security advisories are excluded.
+          Paste a drupal.org profile URL — or a username or user ID — to pull its contribution
+          records live from the drupal.org API. Security advisories are excluded.
         </p>
       )}
       {loading && (
@@ -152,8 +160,15 @@ export default function App() {
       {view && (
         <>
           <p className="sub">
-            {data.username} · {data.months ? `last ${data.months} months` : 'all-time'} · security
-            advisories excluded · fetched {new Date(data.fetchedAt).toLocaleString()}
+            <a
+              href={`https://www.drupal.org/${/^\d+$/.test(data.user) ? 'user' : 'u'}/${data.user}`}
+              target="_blank"
+              rel="noopener"
+            >
+              {data.user}
+            </a>{' '}
+            · {data.months ? `last ${data.months} months` : 'all-time'} · security advisories
+            excluded · fetched {new Date(data.fetchedAt).toLocaleString()}
           </p>
           {data.truncated && (
             <p className="err">

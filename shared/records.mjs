@@ -3,6 +3,10 @@
 // https://www.drupal.org/drupalorg/docs/apis/rest-and-other-apis#s-contribution-records
 
 const ENDPOINT = 'https://new.drupal.org/contribution-records-by-user';
+// The friendly endpoint only resolves usernames, and a profile URL is not one: /u/admitriiev
+// belongs to the user "a.dmitriiev". Numeric input therefore goes straight to the view the
+// friendly endpoint redirects to, skipping the name lookup.
+const VIEW = 'https://new.drupal.org/jsonapi/views/contribution_records/by_user';
 const PAGE_SIZE = 50;
 const MAX_CONCURRENCY = 8;
 // Page fan-out, not query time, is the real ceiling: a very active account has thousands
@@ -16,7 +20,10 @@ const PAGE_TIMEOUT_MS = 8000;
 
 export class UnknownUserError extends Error {
   constructor(username) {
-    super(`No drupal.org user named "${username}".`);
+    super(
+      `No drupal.org user named "${username}". Profile URLs drop dots — /u/admitriiev is the ` +
+        'user "a.dmitriiev" — so use the exact username or the numeric user ID.',
+    );
     this.name = 'UnknownUserError';
   }
 }
@@ -54,12 +61,58 @@ function isTimeout(error) {
   return false;
 }
 
-async function fetchPage(username, page, months) {
-  const params = new URLSearchParams({ username, is_sa: '0', page: String(page) });
+const PROFILE_URL = /drupal\.org\/u(?:ser)?\/([^/?#]+)/i;
+
+/**
+ * A profile page carries its own uid in the shortlink meta tag, which is the only
+ * dependable way back from an alias: /u/admitriiev is the user "a.dmitriiev".
+ */
+async function uidFromProfile(alias) {
+  const response = await fetch(`https://www.drupal.org/u/${encodeURIComponent(alias)}`, {
+    signal: AbortSignal.timeout(PAGE_TIMEOUT_MS),
+  });
+  if (!response.ok) throw new UnknownUserError(alias);
+  const uid = /rel="shortlink" href="[^"]*\/user\/(\d+)"/.exec(await response.text())?.[1];
+  if (!uid) throw new UnknownUserError(alias);
+  return uid;
+}
+
+/**
+ * Turns whatever the user pasted — profile URL, username or numeric id — into
+ * something the records endpoints accept.
+ */
+export async function resolveUser(input) {
+  const value = input.trim();
+  if (/^\d+$/.test(value)) return value;
+
+  const match = PROFILE_URL.exec(value);
+  if (!match) return value;
+
+  const segment = decodeURIComponent(match[1]);
+  // /user/3235287 already is the id; /u/<alias> needs the profile page.
+  return /^\d+$/.test(segment) ? segment : uidFromProfile(segment);
+}
+
+/** Numeric input is a user ID, anything else a username. */
+function pageUrl(user, page, months) {
+  if (/^\d+$/.test(user)) {
+    const params = new URLSearchParams({
+      'views-argument[0]': user,
+      'views-filter[field_is_sa_value]': '0',
+      page: String(page),
+    });
+    if (months) params.set('views-filter[last_status_change]', `${months} months ago`);
+    return `${VIEW}?${params}`;
+  }
+  const params = new URLSearchParams({ username: user, is_sa: '0', page: String(page) });
   if (months) params.set('months', String(months));
+  return `${ENDPOINT}?${params}`;
+}
+
+async function fetchPage(username, page, months) {
   try {
     // The friendly endpoint 302s to the JSON:API view with the resolved uid; fetch follows it.
-    const response = await fetch(`${ENDPOINT}?${params}`, {
+    const response = await fetch(pageUrl(username, page, months), {
       signal: AbortSignal.timeout(PAGE_TIMEOUT_MS),
     });
     if (!response.ok) {
@@ -96,19 +149,30 @@ async function pooled(tasks, limit) {
  * for all-time. Page 0 reveals the total, so the rest are fetched in parallel —
  * sequential paging would blow the function's time budget.
  */
-export async function fetchAllRecords(username, { months } = {}) {
-  const first = await fetchPage(username, 0, months);
+export async function fetchAllRecords(input, { months } = {}) {
+  let user = await resolveUser(input);
+  let first;
+  try {
+    first = await fetchPage(user, 0, months);
+  } catch (cause) {
+    // A bare name the endpoint cannot resolve may still be a profile alias.
+    if (!(cause instanceof UnknownUserError)) throw cause;
+    user = await uidFromProfile(user);
+    first = await fetchPage(user, 0, months);
+  }
   const pageCount = Math.min(Math.ceil(first.total / PAGE_SIZE), MAX_PAGES);
   const rest = await pooled(
     Array.from(
       { length: Math.max(0, pageCount - 1) },
-      (_, i) => () => fetchPage(username, i + 1, months),
+      (_, i) => () => fetchPage(user, i + 1, months),
     ),
     MAX_CONCURRENCY,
   );
   const records = [first, ...rest].flatMap((page) => page.records);
   return {
-    username,
+    // What was asked for, and what it turned out to be — the app links back to the profile.
+    input: input.trim(),
+    user,
     months: months ?? null,
     fetchedAt: new Date().toISOString(),
     total: first.total,

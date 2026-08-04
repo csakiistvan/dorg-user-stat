@@ -4,7 +4,8 @@ Contribution stats for any drupal.org user, read live from the
 [contribution records API](https://www.drupal.org/drupalorg/docs/apis/rest-and-other-apis#s-contribution-records).
 Vite + React front end, one Netlify function in front of the API.
 
-Shareable URLs: `/u/<username>`, optionally `?months=24`.
+Takes a profile URL, a username or a numeric user ID and works out the rest.
+Shareable URLs: `/u/<username-or-id>`, optionally `?months=24`.
 
 ## Develop
 
@@ -29,6 +30,10 @@ and provides the CDN cache below.
   follows it; a Netlify redirect-proxy would not, which is why this is a function.
 - An **unknown username redirects to the drupal.org homepage** and returns HTML, not a JSON
   error — hence the content-type check that produces the 404.
+- **A profile URL is not a username.** `/u/admitriiev` belongs to the user `a.dmitriiev`; the
+  alias drops the dot, and the API resolves usernames only. Profile pages carry their own uid in
+  a `rel="shortlink"` tag, which is how any alias gets turned into an id. Numeric input skips the
+  friendly endpoint and queries the underlying view directly.
 - Pages hold 50 records, `meta.count` gives the total. Page 0 is fetched first so the remaining
   pages can go out in parallel.
 - **Cold queries are slow, warm ones are fast.** A single warm page is ~0.5 s; the first request
