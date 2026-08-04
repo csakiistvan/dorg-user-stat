@@ -4,12 +4,20 @@ Contribution stats for any drupal.org user, read live from the
 [drupal.org APIs](https://www.drupal.org/drupalorg/docs/apis/rest-and-other-apis).
 Vite + React front end, Netlify functions in front of the APIs.
 
-Two sources, cross-referenced:
+Three endpoints, cross-referenced:
 
 - `/api/records` — credited contribution records (`new.drupal.org` JSON:API view).
-- `/api/activity` — issues the user commented on, merged from the legacy `api-d7/comment.json`
-  history and the commented events of the matching `git.drupalcode.org` account. Subtracting the
-  credited issues leaves **worked on, not credited**.
+- `/api/comments` — issues the user commented on, from the legacy `api-d7/comment.json` history.
+- `/api/gitlab` — the same, from the commented events of the matching `git.drupalcode.org`
+  account.
+
+The client merges the two comment sources by project and issue number; subtracting the credited
+issues leaves **worked on, not credited**.
+
+Every endpoint answers with a single page (`?page=`, plus `hasMore` in the response) and the
+client stitches the pages together, reporting progress as they land. That split is deliberate:
+the function time budget applies per invocation, so one heavy account's worth of pages fetched
+in a single request times out where the same pages requested individually all succeed.
 
 Neither comment source is complete alone: issues migrated to GitLab work items, so recent
 discussion never reaches api-d7. Measured on one account, 62 of 100 GitLab issues were missing

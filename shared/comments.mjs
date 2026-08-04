@@ -3,7 +3,7 @@
 // what was worked on privately.
 // https://www.drupal.org/drupalorg/docs/apis/rest-and-other-apis
 
-import { fetchJson, pooled, MAX_PAGES, MAX_CONCURRENCY } from './fetch.mjs';
+import { fetchJson } from './fetch.mjs';
 
 const ENDPOINT = 'https://www.drupal.org/api-d7/comment.json';
 const ISSUE_URL = /\/project\/([^/]+)\/issues\/(\d+)/;
@@ -49,47 +49,19 @@ export function cutoffFor({ months, from }) {
 }
 
 /**
- * Issues the user commented on, newest comment first, one entry per issue.
- * Within a range the pages are walked in order and stopped at the cutoff, which is far
- * cheaper than collecting an entire history; for all-time, pages go out in parallel.
+ * One page of commented issues, newest comment first. Comments are explicitly sorted by
+ * creation date, so a page holding anything older than the cutoff ends the walk.
  */
 export async function fetchD7CommentedIssues(uid, options = {}) {
-  const first = await fetchPage(uid, 0);
-  const pages = [first];
+  const page = options.page ?? 0;
   const cutoff = cutoffFor(options);
-
-  const reachedCutoff = (page) => page.comments.some((comment) => comment.at < cutoff);
-  const pageLimit = Math.min(first.lastPage, MAX_PAGES - 1);
-  let truncated;
-
-  if (cutoff) {
-    // Walk in order until a comment older than the cutoff proves the range is covered.
-    let covered = reachedCutoff(first);
-    let page = 1;
-    while (!covered && page <= first.lastPage && page < MAX_PAGES) {
-      const next = await fetchPage(uid, page++);
-      pages.push(next);
-      covered = reachedCutoff(next);
-    }
-    // Covered either by an older comment turning up, or by having read every page.
-    truncated = !covered && page <= first.lastPage;
-  } else {
-    pages.push(
-      ...(await pooled(
-        Array.from({ length: Math.max(0, pageLimit) }, (_, i) => () => fetchPage(uid, i + 1)),
-        MAX_CONCURRENCY,
-      )),
-    );
-    truncated = first.lastPage > pageLimit;
-  }
-
-  const comments = pages
-    .flatMap((page) => page.comments)
-    .filter((comment) => !cutoff || comment.at >= cutoff);
+  const { comments, lastPage } = await fetchPage(uid, page);
+  const inRange = cutoff ? comments.filter((comment) => comment.at >= cutoff) : comments;
+  const reachedCutoff = Boolean(cutoff) && inRange.length < comments.length;
 
   // One entry per issue, carrying the newest comment date and how many comments there are.
   const issues = new Map();
-  for (const comment of comments) {
+  for (const comment of inRange) {
     const existing = issues.get(comment.issue);
     if (existing) {
       existing.comments++;
@@ -101,7 +73,8 @@ export async function fetchD7CommentedIssues(uid, options = {}) {
 
   return {
     issues: [...issues.values()].sort((a, b) => b.at.localeCompare(a.at)),
-    commentCount: comments.length,
-    truncated,
+    page,
+    pageCount: lastPage + 1,
+    hasMore: !reachedCutoff && page < lastPage,
   };
 }

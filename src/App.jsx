@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { bestMonth, formatMonth, groupByProject, issueKey, recordsByMonth } from './aggregate.js';
+import { loadActivity, loadRecords } from './api.js';
+import {
+  cacheActivity,
+  cachedActivity,
+  cachedRecords,
+  cacheRecords,
+  rememberAlias,
+} from './cache.js';
 import MonthlyBars from './components/MonthlyBars.jsx';
 import ProjectBars from './components/ProjectBars.jsx';
 
@@ -26,6 +34,28 @@ function rangeLabel(key) {
   return RANGES.find((range) => range.key === key)?.label ?? key;
 }
 
+/**
+ * How far the two comment sources have walked. Neither knows its total up front — the walk
+ * ends when a page reaches past the cutoff — so pages collected is the honest measure, and
+ * GitLab contributes a page count once its first page is in.
+ */
+function progressLabel(progress) {
+  if (!progress) return '';
+  const parts = [];
+  if (progress.comments) {
+    parts.push(`drupal.org: ${progress.comments.issues} issues, page ${progress.comments.pages}`);
+  }
+  if (progress.gitlab?.unavailable) {
+    parts.push('GitLab: no account');
+  } else if (progress.gitlab) {
+    const of = progress.gitlab.pageCount ? ` of ${progress.gitlab.pageCount}` : '';
+    parts.push(
+      `GitLab: ${progress.gitlab.issues} issues, page ${progress.gitlab.pages}${of}`,
+    );
+  }
+  return parts.join(' · ');
+}
+
 export default function App() {
   const [username, setUsername] = useState(usernameFromPath);
   const [range, setRange] = useState(rangeFromQuery);
@@ -36,6 +66,10 @@ export default function App() {
   // A month picked in the histogram, filtering the per-project breakdown.
   const [month, setMonth] = useState(null);
   const [activity, setActivity] = useState(null);
+  // Both sources are collected page by page, so how far along they are is worth showing:
+  // a heavy account is dozens of requests, and silence for that long reads as a hang.
+  const [recordProgress, setRecordProgress] = useState(null);
+  const [activityProgress, setActivityProgress] = useState(null);
 
   useEffect(() => {
     const onPopState = () => {
@@ -59,36 +93,58 @@ export default function App() {
     setData(null);
     setMonth(null);
     setActivity(null);
+    setRecordProgress(null);
+    setActivityProgress(null);
 
-    const query = new URLSearchParams({ user: username });
-    query.set('range', range);
-    const load = (source) =>
-      fetch(`/api/${source}?${query}`, { signal: controller.signal }).then(async (response) => {
-        const body = await response.json();
-        if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
-        return body;
-      });
+    const query = { user: username, range };
+    const options = { signal: controller.signal };
 
-    load('records')
-      .then((body) => {
-        setData(body);
-        // Tidy a pasted profile URL down to what it resolved to, so the address bar stays linkable.
-        if (body.user.name !== usernameFromPath()) {
-          const suffix = range === DEFAULT_RANGE ? '' : `?range=${range}`;
-          history.replaceState(null, '', `/u/${encodeURIComponent(body.user.name)}${suffix}`);
-          setInput(body.user.name);
-        }
-      })
-      .catch((cause) => {
-        if (cause.name !== 'AbortError') setError(cause.message);
-      })
-      .finally(() => setLoading(false));
+    /** Canonicalises the address bar, and lets the cache tie every spelling of the account together. */
+    const settle = (user) => {
+      rememberAlias(username, user.name);
+      if (user.name !== usernameFromPath()) {
+        const suffix = range === DEFAULT_RANGE ? '' : `?range=${range}`;
+        history.replaceState(null, '', `/u/${encodeURIComponent(user.name)}${suffix}`);
+        setInput(user.name);
+      }
+    };
+
+    // A wider range already in hand contains this one, so narrowing it beats refetching
+    // dozens of pages. Both views are cached independently: the slower one arriving late
+    // must not hold the other back.
+    const records = cachedRecords(username, range);
+    if (records) {
+      setData(records);
+      settle(records.user);
+      setLoading(false);
+    } else {
+      loadRecords(query, { ...options, onProgress: setRecordProgress })
+        .then((body) => {
+          setData(body);
+          cacheRecords(username, range, body);
+          settle(body.user);
+        })
+        .catch((cause) => {
+          if (cause.name !== 'AbortError') setError(cause.message);
+        })
+        .finally(() => setLoading(false));
+    }
 
     // Comment history is the slower of the two, so it lands on its own and never blocks
     // the records view. A failure here leaves the rest of the page intact.
-    load('activity')
-      .then(setActivity)
-      .catch(() => setActivity({ failed: true }));
+    const activity = cachedActivity(username, range);
+    if (activity) {
+      setActivity(activity);
+    } else {
+      loadActivity(query, { ...options, onProgress: setActivityProgress })
+        .then((body) => {
+          setActivity(body);
+          cacheActivity(username, range, body);
+        })
+        .catch((cause) => {
+          if (cause.name !== 'AbortError') setActivity({ failed: true });
+        });
+    }
 
     return () => controller.abort();
   }, [username, range]);
@@ -208,7 +264,12 @@ export default function App() {
         </p>
       )}
       {loading && (
-        <p className="cap">Loading {rangeLabel(range)}…</p>
+        <p className="cap">
+          Loading {rangeLabel(range)}…
+          {recordProgress?.total
+            ? ` ${recordProgress.loaded} of ${recordProgress.total} records`
+            : ''}
+        </p>
       )}
       {error && (
         <p className="err">
@@ -226,11 +287,19 @@ export default function App() {
             </a>{' '}
             · {rangeLabel(data.range)} · security advisories
             excluded · fetched {new Date(data.fetchedAt).toLocaleString()}
+            {data.derivedFrom && ` · filtered from the ${rangeLabel(data.derivedFrom)} fetch`}
           </p>
           {data.truncated && (
             <p className="err">
               Showing the {data.records.length} newest of {data.total} records — the rest exceed
               what one request can collect. Narrow the range for a complete picture.
+            </p>
+          )}
+          {!data.truncated && data.failedPages > 0 && (
+            <p className="err">
+              {data.failedPages} of {data.pageCount} pages of records kept timing out,
+              so {data.records.length} of {data.total} records are shown. drupal.org is slow until
+              this account's cache is warm — reloading shortly usually fills the gap.
             </p>
           )}
 
@@ -303,19 +372,39 @@ export default function App() {
                   the only public trace of uncredited work, so anything done without posting on the
                   issue is invisible here.
                 </p>
-                {activity?.sources && (
+                {activity?.sources?.derivedFrom && (
                   <p className="cap">
-                    Merged from {activity.sources.comments} issues in the drupal.org comment history
+                    Filtered from the {rangeLabel(activity.sources.derivedFrom)} comment history
+                    already fetched
+                    {activity.sources.gitlabUser && ` (GitLab @${activity.sources.gitlabUser})`}.
+                    {activity.sources.gitlabRateLimited &&
+                      ' GitLab throttled that request, so its side may be incomplete.'}
+                  </p>
+                )}
+                {activity?.sources && !activity.sources.derivedFrom && (
+                  <p className="cap">
+                    Merged from{' '}
+                    {activity.sources.commentsFailed
+                      ? 'the drupal.org comment history (unavailable)'
+                      : `${activity.sources.comments} issues in the drupal.org comment history`}{' '}
                     and{' '}
-                    {activity.sources.gitlab === null
-                      ? 'no GitLab account found'
-                      : `${activity.sources.gitlab} on GitLab (@${activity.sources.gitlabUser})`}
+                    {activity.sources.gitlabFailed
+                      ? 'GitLab (unavailable)'
+                      : activity.sources.gitlab === null
+                        ? 'no GitLab account found'
+                        : `${activity.sources.gitlab} on GitLab (@${activity.sources.gitlabUser})`}
                     .
                     {activity.sources.gitlabRateLimited &&
                       ' GitLab throttled this request, so its side may be incomplete.'}
+                    {activity.sources.gitlabIncomplete &&
+                      ' Some GitLab issues could not be matched to a project and are left out.'}
                   </p>
                 )}
-                {!activity && <p className="cap">Loading comment history…</p>}
+                {!activity && (
+                  <p className="cap">
+                    Loading comment history… {progressLabel(activityProgress)}
+                  </p>
+                )}
                 {activity?.failed && (
                   <p className="cap">Comment history unavailable — the records above are unaffected.</p>
                 )}

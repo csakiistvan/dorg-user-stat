@@ -1,7 +1,7 @@
 // Contribution records from the drupal.org JSON:API view.
 // https://www.drupal.org/drupalorg/docs/apis/rest-and-other-apis#s-contribution-records
 
-import { fetchJson, pooled, PAGE_SIZE, MAX_PAGES, MAX_CONCURRENCY } from './fetch.mjs';
+import { fetchJson, PAGE_SIZE } from './fetch.mjs';
 
 const VIEW = 'https://new.drupal.org/jsonapi/views/contribution_records/by_user';
 
@@ -37,19 +37,22 @@ async function fetchPage(uid, page, months) {
  * all-time. Page 0 reveals the total, so the rest are fetched in parallel — sequential
  * paging would blow the function's time budget.
  */
-export async function fetchRecords(uid, { months, from } = {}) {
-  const first = await fetchPage(uid, 0, months);
-  const pageCount = Math.min(Math.ceil(first.total / PAGE_SIZE), MAX_PAGES);
-  const rest = await pooled(
-    Array.from({ length: Math.max(0, pageCount - 1) }, (_, i) => () => fetchPage(uid, i + 1, months)),
-    MAX_CONCURRENCY,
-  );
-  const collected = [first, ...rest].flatMap((page) => page.records);
-  // The upstream window is coarser than the requested range, so trim to the exact cutoff.
-  const records = from ? collected.filter((record) => record.credited >= from) : collected;
+/**
+ * One page of records. Collecting everything in a single request is what breaks on large
+ * accounts: a cold page takes up to 7 seconds and four of them outlive the function, while
+ * each page requested on its own comfortably fits. The client stitches the pages together.
+ *
+ * Pages are not strictly ordered by date, so there is no stopping early — the upstream
+ * months window bounds the set and `from` trims it to the exact cutoff.
+ */
+export async function fetchRecords(uid, { months, from, page = 0 } = {}) {
+  const { records, total } = await fetchPage(uid, page, months);
+  const pageCount = Math.ceil(total / PAGE_SIZE);
   return {
-    total: from ? records.length : first.total,
-    truncated: collected.length < first.total,
-    records,
+    records: from ? records.filter((record) => record.credited >= from) : records,
+    page,
+    pageCount,
+    total,
+    hasMore: page + 1 < pageCount,
   };
 }

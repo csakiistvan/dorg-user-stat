@@ -4,15 +4,14 @@
 // Only two things are readable without a token: a user lookup by exact username and a user's
 // own event stream. Per-issue note lists answer 401, and ?search= answers 403.
 
-import { MAX_CONCURRENCY, pooled } from './fetch.mjs';
+import { pooled } from './fetch.mjs';
 
 const API = 'https://git.drupalcode.org/api/v4';
 const PER_PAGE = 100;
 const TIMEOUT_MS = 8000;
 // Unauthenticated callers get 180 requests per minute per IP (throttle_unauthenticated_api),
-// and on a deployed function that budget is shared by every visitor. Both page collection and
-// project lookups are therefore capped, and project names are cached for the instance's life.
-const MAX_EVENT_PAGES = 15;
+// and on a deployed function that budget is shared by every visitor. Project lookups are
+// therefore capped per page, and both names and accounts are cached for the instance's life.
 const MAX_PROJECT_LOOKUPS = 40;
 const LOOKUP_CONCURRENCY = 8;
 
@@ -84,29 +83,41 @@ function isQuickActionOnly(body) {
  * so a cutoff stops the walk early. Returns null when the account cannot be located, which
  * is not an error — plenty of users have no GitLab activity to read.
  */
-export async function fetchGitlabCommentedIssues(uid, { from, knownProjects = new Map() } = {}) {
-  const state = { rateLimited: false };
-  const username = await gitlabUsernameFor(uid);
-  if (!username) return null;
-  const id = await userId(username, state);
-  if (!id) return null;
+/** Resolving the account costs two requests, so remember it for the instance's life. */
+const accounts = new Map();
 
-  const first = await firstEventPage(id);
-  if (!first) return null;
-  const pageCount = Math.min(first.totalPages, MAX_EVENT_PAGES);
-  const rest = await pooled(
-    Array.from(
-      { length: Math.max(0, pageCount - 1) },
-      (_, i) => () =>
-        get(`/users/${id}/events?action=commented&per_page=${PER_PAGE}&page=${i + 2}`, state),
-    ),
-    MAX_CONCURRENCY,
-  );
-  const events = [first.events, ...rest].flat().filter(Boolean);
-  const truncated = first.totalPages > pageCount;
+async function accountFor(uid, state) {
+  if (accounts.has(uid)) return accounts.get(uid);
+  const username = await gitlabUsernameFor(uid);
+  const id = username ? await userId(username, state) : null;
+  const account = id ? { username, id } : null;
+  accounts.set(uid, account);
+  return account;
+}
+
+export async function fetchGitlabCommentedIssues(uid, { from, page = 0 } = {}) {
+  const state = { rateLimited: false };
+  const account = await accountFor(uid, state);
+  if (!account) return null;
+
+  const batch =
+    page === 0
+      ? await firstEventPage(account.id)
+      : {
+          events: await get(
+            `/users/${account.id}/events?action=commented&per_page=${PER_PAGE}&page=${page + 1}`,
+            state,
+          ),
+          totalPages: null,
+        };
+  if (!batch?.events) return null;
+
+  // Events are newest first, so anything older than the cutoff ends the walk.
+  const reachedCutoff =
+    Boolean(from) && batch.events.some((event) => event.created_at.slice(0, 10) < from);
 
   const issues = new Map();
-  for (const event of events) {
+  for (const event of batch.events) {
     const note = event.note;
     if (note?.noteable_type !== 'Issue' || isQuickActionOnly(note.body)) continue;
     const at = event.created_at.slice(0, 10);
@@ -122,13 +133,11 @@ export async function fetchGitlabCommentedIssues(uid, { from, knownProjects = ne
     issues.set(issue, { issue, at, comments: 1, projectId: event.project_id });
   }
 
-  // Names already known from the other source, or cached earlier, cost nothing. Only the
-  // remainder is looked up, in parallel and capped, to stay well inside the rate limit.
-  const entries = [...issues.values()].map((entry) => ({
-    ...entry,
-    project: knownProjects.get(entry.issue) ?? projectNames.get(entry.projectId) ?? null,
-  }));
-  const unresolved = [...new Set(entries.filter((e) => !e.project).map((e) => e.projectId))];
+  // Only names not cached from earlier pages are looked up, capped to stay inside the limit.
+  const entries = [...issues.values()];
+  const unresolved = [
+    ...new Set(entries.filter((e) => !projectNames.has(e.projectId)).map((e) => e.projectId)),
+  ];
   await pooled(
     unresolved.slice(0, MAX_PROJECT_LOOKUPS).map((projectId) => () => projectName(projectId, state)),
     LOOKUP_CONCURRENCY,
@@ -136,7 +145,7 @@ export async function fetchGitlabCommentedIssues(uid, { from, knownProjects = ne
 
   const named = entries
     .map(({ projectId, ...entry }) => {
-      const project = entry.project ?? projectNames.get(projectId);
+      const project = projectNames.get(projectId);
       return {
         ...entry,
         project,
@@ -148,11 +157,15 @@ export async function fetchGitlabCommentedIssues(uid, { from, knownProjects = ne
       };
     })
     .filter((entry) => entry.project);
+
   return {
-    username,
+    username: account.username,
     issues: named,
+    page,
+    pageCount: batch.totalPages,
+    hasMore: !reachedCutoff && batch.events.length === PER_PAGE,
     // Anything dropped for want of a project name is a gap the UI should own up to.
-    truncated: truncated || named.length < entries.length,
+    incomplete: named.length < entries.length,
     rateLimited: state.rateLimited,
   };
 }

@@ -8,7 +8,7 @@ export default function devApi() {
   return {
     name: 'dev-api',
     configureServer(server) {
-      for (const source of ['records', 'activity']) {
+      for (const source of ['records', 'comments', 'gitlab']) {
         server.middlewares.use(`/api/${source}`, async (request, response) => {
           const { searchParams } = new URL(request.url, 'http://localhost');
           const { status, body } = await handle(source, searchParams);
