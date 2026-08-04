@@ -1,0 +1,11 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+# /u/<username> is a client-side route; everything but /api/* falls back to the app.
+# The function declares its own path (/api/records) via its config export.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
