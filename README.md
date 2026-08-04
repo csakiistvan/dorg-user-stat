@@ -7,12 +7,16 @@ Vite + React front end, Netlify functions in front of the APIs.
 Two sources, cross-referenced:
 
 - `/api/records` — credited contribution records (`new.drupal.org` JSON:API view).
-- `/api/activity` — issues the user commented on (legacy `api-d7/comment.json`). Subtracting the
+- `/api/activity` — issues the user commented on, merged from the legacy `api-d7/comment.json`
+  history and the commented events of the matching `git.drupalcode.org` account. Subtracting the
   credited issues leaves **worked on, not credited**.
 
-Comments are the only public trace of uncredited work, so work done without posting on the issue
-does not appear. Measured against a local test-run log of 143 issues, 89 had a matching comment
-and 54 did not — this is a related but different metric, not a complete activity log.
+Neither comment source is complete alone: issues migrated to GitLab work items, so recent
+discussion never reaches api-d7. Measured on one account, 62 of 100 GitLab issues were missing
+from api-d7, and of 54 locally tested issues with no api-d7 comment, 52 were found on GitLab.
+
+Comments are still the only public trace of uncredited work, so anything done without posting on
+the issue does not appear — a related metric, not a complete activity log.
 
 Takes a profile URL, a username or a numeric user ID and works out the rest.
 Shareable URLs: `/u/<username-or-id>`, optionally `?range=2y|5y|all`. The range defaults to the
@@ -58,6 +62,15 @@ and provides the CDN cache below.
 - **Comment history has no date filter.** `api-d7/comment.json` sorts by `created` but cannot be
   bounded server-side, so a `months` window is walked page by page and stopped at the cutoff;
   all-time fans the pages out in parallel instead.
+- **The GitLab account is only discoverable from the profile page.** A drupal.org username is not
+  a GitLab username — "gábor hojtsy" is `goba` there — and `/api/v4/users?search=` answers 403
+  anonymously, so the link on the drupal.org profile is the bridge. Exact `?username=` lookups and
+  a user's own event stream are public; per-issue note lists answer 401.
+- **GitLab allows 180 anonymous requests per minute per IP** (`throttle_unauthenticated_api`), a
+  budget every visitor of a deployed instance shares. Event pages and project-name lookups are
+  both capped, names known from api-d7 are reused, and a 429 is reported rather than swallowed.
+- **Quick actions dominate GitLab comment events.** On one account 191 of 346 were bodies like
+  `/do:unassign me`; counting them would inflate the figure by half with bookkeeping.
 - **Users resolve through `api-d7`, records through `new.drupal.org`.** Two API generations are in
   play. `user.json?name=` maps a username to a uid and gives back the display name; everything
   else keys on the uid, so both sources share one cache key per user.

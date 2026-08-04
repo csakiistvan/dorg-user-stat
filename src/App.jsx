@@ -310,6 +310,18 @@ export default function App() {
                   the only public trace of uncredited work, so anything done without posting on the
                   issue is invisible here.
                 </p>
+                {activity?.sources && (
+                  <p className="cap">
+                    Merged from {activity.sources.comments} issues in the drupal.org comment history
+                    and{' '}
+                    {activity.sources.gitlab === null
+                      ? 'no GitLab account found'
+                      : `${activity.sources.gitlab} on GitLab (@${activity.sources.gitlabUser})`}
+                    .
+                    {activity.sources.gitlabRateLimited &&
+                      ' GitLab throttled this request, so its side may be incomplete.'}
+                  </p>
+                )}
                 {!activity && <p className="cap">Loading comment history…</p>}
                 {activity?.failed && (
                   <p className="cap">Comment history unavailable — the records above are unaffected.</p>
@@ -357,18 +369,29 @@ export default function App() {
           </dd>
           <dt>Worked on, not credited</dt>
           <dd>
-            Issue comments from the legacy <code>api-d7/comment.json</code> endpoint, reduced to one
-            entry per issue and dated by the newest comment on it. Any issue that already has a
-            contribution record is removed, so what remains is public activity without a credit.
+            Issue comments from two places, merged by issue number. The legacy{' '}
+            <code>api-d7/comment.json</code> endpoint holds the older history; issues have since
+            moved to GitLab work items, so recent discussion is read from the commented events of
+            the matching account on{' '}
+            <a href="https://git.drupalcode.org" target="_blank" rel="noopener">
+              git.drupalcode.org
+            </a>
+            , which the drupal.org profile links to. Quick actions such as{' '}
+            <code>/do:unassign me</code> are discarded — they are bookkeeping, not work, and on a
+            busy account they outnumber real comments. Each issue is dated by its newest comment,
+            and any issue that already has a contribution record is removed, so what remains is
+            public activity without a credit.
           </dd>
         </dl>
         <p>
           Both figures can differ from reality. A comment is the only public trace of uncredited
           work, so anything done without posting on the issue cannot appear here. Credits are
           awarded later and change the split retroactively, so an issue counted as uncredited today
-          may move to the credited series tomorrow. Long histories are collected only up to a limit
-          and are flagged when cut short, and the two sources come from different drupal.org API
-          generations that may disagree.
+          may move to the credited series tomorrow. GitLab activity only reaches back to the issue
+          migration, and the older comment endpoint is a different API generation, so the two can
+          disagree. GitLab also rate-limits anonymous callers, and long histories are collected only
+          up to a limit — both cases are flagged above when they occur, and mean the figures shown
+          are a floor rather than a full count.
         </p>
         <p>This page is provided as-is, with no responsibility taken for the data it displays.</p>
       </footer>

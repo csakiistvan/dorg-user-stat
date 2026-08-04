@@ -41,7 +41,7 @@ function cutoffDate(months) {
 }
 
 /** This endpoint has no server-side date filter, so an exact cutoff costs nothing extra. */
-function cutoffFor({ months, from }) {
+export function cutoffFor({ months, from }) {
   if (from) return from;
   return months ? cutoffDate(months) : null;
 }
@@ -51,7 +51,7 @@ function cutoffFor({ months, from }) {
  * Within a range the pages are walked in order and stopped at the cutoff, which is far
  * cheaper than collecting an entire history; for all-time, pages go out in parallel.
  */
-export async function fetchCommentedIssues(uid, options = {}) {
+export async function fetchD7CommentedIssues(uid, options = {}) {
   const first = await fetchPage(uid, 0);
   const pages = [first];
   const cutoff = cutoffFor(options);

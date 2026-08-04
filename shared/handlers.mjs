@@ -3,7 +3,7 @@
 
 import { resolveUser, UnknownUserError, UpstreamTimeoutError } from './user.mjs';
 import { fetchRecords } from './records.mjs';
-import { fetchCommentedIssues } from './comments.mjs';
+import { fetchCommentedIssues } from './activity.mjs';
 import { DEFAULT_RANGE, isRange, resolveRange } from './range.mjs';
 
 const SOURCES = {
