@@ -1,33 +1,22 @@
-import { fetchAllRecords, UnknownUserError, UpstreamTimeoutError } from '../shared/records.mjs';
+import { handle } from '../shared/handlers.mjs';
 
 /**
- * Serves /api/records from the Vite dev server so local development needs no
- * netlify-cli. Same shared upstream module the deployed function uses; caching is
- * the CDN's job in production and irrelevant here.
+ * Serves /api/* from the Vite dev server so local development needs no netlify-cli.
+ * Same shared handlers the deployed functions use; caching is the CDN's job in production.
  */
 export default function devApi() {
   return {
     name: 'dev-api',
     configureServer(server) {
-      server.middlewares.use('/api/records', async (request, response) => {
-        const query = new URL(request.url, 'http://localhost').searchParams;
-        const username = query.get('username')?.trim();
-        const months = Number(query.get('months')) || undefined;
-        const send = (status, body) => {
+      for (const source of ['records', 'activity']) {
+        server.middlewares.use(`/api/${source}`, async (request, response) => {
+          const { searchParams } = new URL(request.url, 'http://localhost');
+          const { status, body } = await handle(source, searchParams);
           response.statusCode = status;
           response.setHeader('content-type', 'application/json');
           response.end(JSON.stringify(body));
-        };
-
-        if (!username) return send(400, { error: 'Missing username.' });
-        try {
-          send(200, await fetchAllRecords(username, { months }));
-        } catch (cause) {
-          if (cause instanceof UnknownUserError) return send(404, { error: cause.message });
-          if (cause instanceof UpstreamTimeoutError) return send(504, { error: cause.message });
-          send(502, { error: `Upstream error: ${cause.message}` });
-        }
-      });
+        });
+      }
     },
   };
 }

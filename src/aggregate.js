@@ -20,10 +20,17 @@ export function recordsByProject(records) {
   );
 }
 
-/** Every month from the earliest to the latest key, gaps included. */
-export function monthSequence(months) {
-  const keys = Object.keys(months).sort();
-  if (!keys.length) return [];
+export function currentMonth() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/**
+ * Every month from the earliest key up to `through`, gaps included. Runs to the current
+ * month by default, so the current year is always on the axis even with nothing in it yet.
+ */
+export function monthSequence(months, through = currentMonth()) {
+  const keys = [...Object.keys(months), through].sort();
   const [firstYear, firstMonth] = keys[0].split('-').map(Number);
   const [lastYear, lastMonth] = keys[keys.length - 1].split('-').map(Number);
   const sequence = [];

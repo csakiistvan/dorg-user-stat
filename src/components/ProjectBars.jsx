@@ -1,8 +1,8 @@
-/** Horizontal bars of project machine name to credited issue count, with linked issue chips. */
-export default function ProjectBars({ entries }) {
+/** Horizontal bars of project machine name to issue count, with linked issue chips. */
+export default function ProjectBars({ entries, accent = false }) {
   const max = Math.max(...entries.map(([, issues]) => issues.length));
   return (
-    <div className="hbars">
+    <div className={accent ? 'hbars accent' : 'hbars'}>
       {entries.map(([project, issues]) => (
         <div className="row" key={project}>
           <div className="n">

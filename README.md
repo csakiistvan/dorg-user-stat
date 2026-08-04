@@ -1,11 +1,22 @@
 # dorg-user-stat
 
 Contribution stats for any drupal.org user, read live from the
-[contribution records API](https://www.drupal.org/drupalorg/docs/apis/rest-and-other-apis#s-contribution-records).
-Vite + React front end, one Netlify function in front of the API.
+[drupal.org APIs](https://www.drupal.org/drupalorg/docs/apis/rest-and-other-apis).
+Vite + React front end, Netlify functions in front of the APIs.
+
+Two sources, cross-referenced:
+
+- `/api/records` — credited contribution records (`new.drupal.org` JSON:API view).
+- `/api/activity` — issues the user commented on (legacy `api-d7/comment.json`). Subtracting the
+  credited issues leaves **worked on, not credited**.
+
+Comments are the only public trace of uncredited work, so work done without posting on the issue
+does not appear. Measured against a local test-run log of 143 issues, 89 had a matching comment
+and 54 did not — this is a related but different metric, not a complete activity log.
 
 Takes a profile URL, a username or a numeric user ID and works out the rest.
-Shareable URLs: `/u/<username-or-id>`, optionally `?months=24`.
+Shareable URLs: `/u/<username-or-id>`, optionally `?range=2y|5y|all`. The range defaults to the
+current year — all-time is what makes the heaviest accounts fail to load.
 
 ## Develop
 
@@ -41,6 +52,15 @@ and provides the CDN cache below.
   that asks for a retry. The attempt warms drupal.org's cache, so the retry usually succeeds.
 - **`months` does not make things faster.** Counter to the API docs' suggestion, the filtered
   query is *slower* than the unfiltered one; its only benefit is fewer pages to collect.
+- **Only relative date filters work.** `views-filter[last_status_change]` accepts `N months ago`;
+  an absolute date returns zero rows, exactly like a nonsense value. The current-year range is
+  therefore requested as the months elapsed this year and trimmed to January 1st server-side.
+- **Comment history has no date filter.** `api-d7/comment.json` sorts by `created` but cannot be
+  bounded server-side, so a `months` window is walked page by page and stopped at the cutoff;
+  all-time fans the pages out in parallel instead.
+- **Users resolve through `api-d7`, records through `new.drupal.org`.** Two API generations are in
+  play. `user.json?name=` maps a username to a uid and gives back the display name; everything
+  else keys on the uid, so both sources share one cache key per user.
 - Very active accounts are past what one request can gather (5661 records ≈ 114 pages), so
   collection stops at `MAX_PAGES` and the response is flagged `truncated` for the UI to report.
 
