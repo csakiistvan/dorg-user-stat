@@ -25,6 +25,8 @@ export default function App() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  // A month picked in the histogram, filtering the per-project breakdown.
+  const [month, setMonth] = useState(null);
 
   useEffect(() => {
     const onPopState = () => {
@@ -46,6 +48,7 @@ export default function App() {
     setLoading(true);
     setError(null);
     setData(null);
+    setMonth(null);
     const query = new URLSearchParams({ username });
     if (months) query.set('months', String(months));
     fetch(`/api/records?${query}`, { signal: controller.signal })
@@ -70,18 +73,17 @@ export default function App() {
     return () => controller.abort();
   }, [username, months]);
 
+  // Summary and histogram always describe the whole fetched range, never the month selection.
   const view = useMemo(() => {
     if (!data) return null;
     const months = recordsByMonth(data.records);
-    const projects = recordsByProject(data.records);
     const best = bestMonth(months);
     const thisYear = String(new Date().getFullYear());
     return {
       months,
-      projects,
       stats: [
         { label: 'records', value: data.records.length },
-        { label: 'projects credited', value: projects.length },
+        { label: 'projects credited', value: recordsByProject(data.records).length },
         {
           label: `in ${thisYear}`,
           value: Object.entries(months)
@@ -92,6 +94,14 @@ export default function App() {
       ],
     };
   }, [data]);
+
+  const projects = useMemo(() => {
+    if (!data) return [];
+    const scope = month
+      ? data.records.filter((record) => record.credited.startsWith(month))
+      : data.records;
+    return recordsByProject(scope);
+  }, [data, month]);
 
   /** Keeps the address bar in step, so any view can be linked or reloaded. */
   function pushUrl(nextUsername, nextMonths) {
@@ -194,15 +204,26 @@ export default function App() {
                 <h2>Records per month</h2>
                 <p className="cap">
                   By credit date (<code>field_last_status_change</code>). Newest month first —
-                  scroll sideways for the full history.
+                  scroll sideways for the full history. Click a month to break it down below.
                 </p>
-                <MonthlyBars months={view.months} />
+                <MonthlyBars months={view.months} selected={month} onSelect={setMonth} />
               </section>
 
               <section>
-                <h2>Records per project</h2>
+                <h2>
+                  Records per project
+                  {month && (
+                    <>
+                      {' | '}
+                      {formatMonth(month)}
+                      <button type="button" className="clear" onClick={() => setMonth(null)}>
+                        clear
+                      </button>
+                    </>
+                  )}
+                </h2>
                 <p className="cap">Credited issues per project, newest credit first.</p>
-                <ProjectBars entries={view.projects} />
+                <ProjectBars entries={projects} />
               </section>
             </>
           )}

@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import { formatMonth, monthSequence } from '../aggregate.js';
 
-/** Month histogram with a year filter. Newest month first, so the axis reads right to left. */
-export default function MonthlyBars({ months }) {
+/**
+ * Month histogram with a year filter. Newest month first, so the axis reads right to left.
+ * Clicking a bar selects that month; clicking it again clears the selection.
+ */
+export default function MonthlyBars({ months, selected, onSelect }) {
   const sequence = monthSequence(months);
   const years = [...new Set(sequence.map((key) => key.slice(0, 4)))].sort().reverse();
   const currentYear = String(new Date().getFullYear());
@@ -24,7 +27,10 @@ export default function MonthlyBars({ months }) {
             key={option}
             type="button"
             aria-pressed={option === year}
-            onClick={() => setYear(option)}
+            onClick={() => {
+              setYear(option);
+              onSelect(null);
+            }}
           >
             {option}
           </button>
@@ -35,9 +41,14 @@ export default function MonthlyBars({ months }) {
           {visible.map((key) => {
             const value = months[key] || 0;
             return (
-              <div
+              <button
                 key={key}
-                className="bar"
+                type="button"
+                className={selected && key !== selected ? 'bar muted' : 'bar'}
+                aria-pressed={key === selected}
+                aria-label={`${formatMonth(key)}, ${value} records`}
+                disabled={!value}
+                onClick={() => onSelect(key === selected ? null : key)}
                 onMouseMove={(event) =>
                   setTip({
                     x: event.clientX,
@@ -48,7 +59,7 @@ export default function MonthlyBars({ months }) {
                 onMouseLeave={() => setTip(null)}
               >
                 <i style={{ height: `${(value / max) * 100}%` }} />
-              </div>
+              </button>
             );
           })}
         </div>
